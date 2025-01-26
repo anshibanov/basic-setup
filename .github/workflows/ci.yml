@@ -1,0 +1,33 @@
+name: CI and Publish Script
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  test_script:
+    runs-on: ubuntu-latest
+    strategy:
+      # Будем тестировать в двух Docker-контейнерах:
+      # 1. ubuntu:rolling (примерно Ubuntu 24)
+      # 2. debian:bookworm  (Debian 12)
+      matrix:
+        distro: [ "ubuntu:rolling", "debian:bookworm" ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run script in Docker container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ matrix.distro }}
+          options: --privileged
+          run: |
+            # В контейнере сначала ставим необходимые пакеты
+            apt-get update
+            apt-get install -y sudo openssl
+
+            # "Рабочая директория" репозитория доступна по /github/workspace
+            # Скопируем наш скрипт в локальную директорию контейнера
+            cp /github/workspace/admin_init.sh ./
