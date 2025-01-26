@@ -30,4 +30,6 @@ jobs:
 
             # "Рабочая директория" репозитория доступна по /github/workspace
             # Скопируем наш скрипт в локальную директорию контейнера
+            ls -la 
+            pwd
             cp /github/workspace/admin_init.sh ./
