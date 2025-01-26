@@ -13,10 +13,10 @@ jobs:
       # 1. ubuntu:rolling (примерно Ubuntu 24)
       # 2. debian:bookworm  (Debian 12)
       matrix:
-        distro: [ "ubuntu:rolling", "debian:bookworm" ]
+        distro: [ "ubuntu:24", "debian:bookworm" ]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Run script in Docker container
         uses: addnab/docker-run-action@v3
@@ -30,6 +30,9 @@ jobs:
 
             # "Рабочая директория" репозитория доступна по /github/workspace
             # Скопируем наш скрипт в локальную директорию контейнера
-            ls -la 
+            ls -la /github
             pwd
             cp /github/workspace/admin_init.sh ./
+
+
+            
