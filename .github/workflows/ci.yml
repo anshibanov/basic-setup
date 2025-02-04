@@ -25,15 +25,21 @@ jobs:
           docker run --rm \
             -v ${{ github.workspace }}:/app \
             -w /app \
-            debian:latest bash -c "./admin_init.sh"
+            debian:latest bash -c "\
+              apt-get update && \
+              apt-get install -y openssl && \
+              ./admin_init.sh"
 
       - name: Test script on Ubuntu
         run: |
           docker run --rm \
             -v ${{ github.workspace }}:/app \
             -w /app \
-            ubuntu:latest bash -c "./admin_init.sh"
-
+            ubuntu:latest bash -c "\
+              apt-get update && \
+              apt-get install -y openssl && \
+              ./admin_init.sh"
+              
   deploy:
     needs: [test-script]
     runs-on: ubuntu-latest
