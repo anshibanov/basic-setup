@@ -3,12 +3,12 @@ name: Deploy admin_init.sh to GitHub Pages
 on:
   push:
     branches:
-      - main  # Укажите нужную ветку
+      - main
 
 permissions:
   contents: read
   pages: write
-  id-token: write  # Добавляем эту строку
+  id-token: write
 
 jobs:
   deploy:
@@ -21,15 +21,24 @@ jobs:
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
+      - name: Verify admin_init.sh exists
+        run: ls -l admin_init.sh || exit 1  # Проверяем, существует ли файл
+
       - name: Create public directory
         run: |
           mkdir -p public
           cp admin_init.sh public/
 
+      - name: List contents of public/
+        run: ls -l public/  # Проверяем, что файл попал в папку
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
+          name: github-pages  # Убедитесь, что это имя совпадает со следующим шагом
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v2
+        with:
+          artifact_name: github-pages  # Должно совпадать с именем артефакта выше
