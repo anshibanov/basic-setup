@@ -18,6 +18,10 @@ if id "admin_init" &>/dev/null; then
 else
     # Создаем пользователя admin_init с домашней директорией и bash-шеллом
     useradd -m -s /bin/bash -p "$(openssl passwd -1 "$PASS")" admin_init
+    echo "========================="
+    echo "Пользователь: admin_init"
+    echo "Сгенерированный пароль: $PASS"
+    echo "========================="
     echo "Пользователь admin_init успешно создан."
 fi
 
@@ -43,8 +47,5 @@ EOF
 chmod 600 /home/admin_init/.ssh/authorized_keys
 chown -R admin_init:admin_init /home/admin_init/.ssh
 
-echo "========================="
-echo "Пользователь: admin_init"
-echo "Сгенерированный пароль: $PASS"
-echo "========================="
+
 echo "Готово!"
