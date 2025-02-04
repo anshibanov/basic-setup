@@ -27,7 +27,7 @@ jobs:
             -w /app \
             debian:latest bash -c "\
               apt-get update && \
-              apt-get install -y openssl && \
+              apt-get install -y openssl sudo && \
               ./admin_init.sh"
 
       - name: Test script on Ubuntu
@@ -37,9 +37,9 @@ jobs:
             -w /app \
             ubuntu:latest bash -c "\
               apt-get update && \
-              apt-get install -y openssl && \
+              apt-get install -y openssl sudo && \
               ./admin_init.sh"
-              
+
   deploy:
     needs: [test-script]
     runs-on: ubuntu-latest
