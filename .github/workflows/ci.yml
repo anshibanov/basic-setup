@@ -26,8 +26,8 @@ jobs:
             -v ${{ github.workspace }}:/app \
             -w /app \
             debian:latest bash -c "\
-              apt-get -qq update && \
-              apt-get -qq install -y openssl sudo && \
+              apt-get -qq update > /dev/null && \
+              apt-get -qq install -y openssl sudo> /dev/null && \
               ./admin_init.sh"
 
       - name: Test script on Ubuntu
@@ -36,8 +36,8 @@ jobs:
             -v ${{ github.workspace }}:/app \
             -w /app \
             ubuntu:latest bash -c "\
-              apt-get -qq update && \
-              apt-get -qq install -y openssl sudo && \
+              apt-get -qq update > /dev/null && \
+              apt-get -qq install -y openssl sudo > /dev/null && \
               ./admin_init.sh"
 
   deploy:
