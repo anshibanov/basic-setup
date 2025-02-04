@@ -1,37 +1,26 @@
-name: Deploy to GitHub Pages
+name: Deploy admin_init.sh to GitHub Pages
 
 on:
   push:
     branches:
-      - main  # или ваша основная ветка
+      - main  # замените на вашу основную ветку, если нужно
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout
+      - name: Checkout репозитория
         uses: actions/checkout@v4
 
-      # Создаём директорию, которую отдадим в Pages
-      - name: Prepare files
+      - name: Подготовка контента для Pages
         run: |
-          mkdir public
+          mkdir -p public
           cp admin_init.sh public/
 
-      # Загружаем собранные файлы (в данном случае один .sh) для дальнейшего деплоя
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+      - name: Деплой на GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: public  # путь к директории, которую хотим опубликовать
-
-  deploy:
-    # Второй job деплоит загруженный выше артефакт на Pages
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write   # необходимо для деплоя на GitHub Pages
-      id-token: write
-    steps:
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v1
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages  # или 'pages', если у вас настроена именно эта ветка для Pages
+          publish_dir: ./public
