@@ -39,6 +39,6 @@ jobs:
           name: github-pages  # Убедитесь, что это имя совпадает со следующим шагом
 
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages  # Должно совпадать с именем артефакта выше
