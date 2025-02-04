@@ -1,4 +1,4 @@
-name: Deploy and Test admin_init.sh to GitHub Pages
+name: Deploy admin_init.sh to GitHub Pages
 
 on:
   push:
@@ -11,23 +11,32 @@ permissions:
   id-token: write
 
 jobs:
-  test:
+  test-script:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        os: [ubuntu-latest, debian:latest]
-    container: ${{ matrix.os }}
     steps:
-      - name: Install dependencies
-        run: apt-get update && apt-get install -y curl
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Run admin_init.sh
+      - name: Make script executable
+        run: chmod +x admin_init.sh
+
+      - name: Test script on Debian
         run: |
-          curl -sSL https://anshibanov.github.io/basic-setup/admin_init.sh | bash
+          docker run --rm \
+            -v ${{ github.workspace }}:/app \
+            -w /app \
+            debian:latest bash -c "./admin_init.sh"
+
+      - name: Test script on Ubuntu
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/app \
+            -w /app \
+            ubuntu:latest bash -c "./admin_init.sh"
 
   deploy:
+    needs: [test-script]
     runs-on: ubuntu-latest
-    needs: test
 
     steps:
       - name: Checkout repository
@@ -37,7 +46,7 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Verify admin_init.sh exists
-        run: ls -l admin_init.sh || exit 1  # Проверяем, существует ли файл
+        run: ls -l admin_init.sh || exit 1
 
       - name: Create public directory
         run: |
@@ -45,15 +54,15 @@ jobs:
           cp admin_init.sh public/
 
       - name: List contents of public/
-        run: ls -l public/  # Проверяем, что файл попал в папку
+        run: ls -l public/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
-          name: github-pages  # Убедитесь, что это имя совпадает со следующим шагом
+          name: github-pages
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages  # Должно совпадать с именем артефакта выше
+          artifact_name: github-pages
