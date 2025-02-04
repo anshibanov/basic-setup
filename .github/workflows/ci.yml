@@ -1,4 +1,4 @@
-name: Deploy admin_init.sh to GitHub Pages
+name: Deploy and Test admin_init.sh to GitHub Pages
 
 on:
   push:
@@ -11,8 +11,23 @@ permissions:
   id-token: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, debian:latest]
+    container: ${{ matrix.os }}
+    steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y curl
+
+      - name: Run admin_init.sh
+        run: |
+          curl -sSL https://anshibanov.github.io/basic-setup/admin_init.sh | bash
+
   deploy:
     runs-on: ubuntu-latest
+    needs: test
 
     steps:
       - name: Checkout repository
