@@ -5,6 +5,11 @@ on:
     branches:
       - main  # Укажите нужную ветку
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write  # Добавляем эту строку
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
