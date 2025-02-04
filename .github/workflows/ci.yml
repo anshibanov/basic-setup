@@ -1,38 +1,37 @@
-name: CI and Publish Script
+name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
+    branches:
+      - main  # или ваша основная ветка
 
 jobs:
-  test_script:
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      # Будем тестировать в двух Docker-контейнерах:
-      # 1. ubuntu:rolling (примерно Ubuntu 24)
-      # 2. debian:bookworm  (Debian 12)
-      matrix:
-        distro: [ "ubuntu:24", "debian:bookworm" ]
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Run script in Docker container
-        uses: addnab/docker-run-action@v3
+      # Создаём директорию, которую отдадим в Pages
+      - name: Prepare files
+        run: |
+          mkdir public
+          cp admin_init.sh public/
+
+      # Загружаем собранные файлы (в данном случае один .sh) для дальнейшего деплоя
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
         with:
-          image: ${{ matrix.distro }}
-          options: --privileged
-          run: |
-            # В контейнере сначала ставим необходимые пакеты
-            apt-get update
-            apt-get install -y sudo openssl
+          path: public  # путь к директории, которую хотим опубликовать
 
-            # "Рабочая директория" репозитория доступна по /github/workspace
-            # Скопируем наш скрипт в локальную директорию контейнера
-            ls -la /github
-            pwd
-            cp /github/workspace/admin_init.sh ./
-
-
-            
+  deploy:
+    # Второй job деплоит загруженный выше артефакт на Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write   # необходимо для деплоя на GitHub Pages
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
