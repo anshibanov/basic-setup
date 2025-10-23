@@ -23,6 +23,9 @@ else
     echo "Сгенерированный пароль: $PASS"
     echo "========================="
     echo "Пользователь admin_init успешно создан."
+    PASSWORD_FILE="/root/.admin_init_password.txt"
+    echo "Пароль admin_init: $PASS" > "$PASSWORD_FILE"
+    chmod 600 "$PASSWORD_FILE"
 fi
 
 # Добавляем пользователя в группу sudo
