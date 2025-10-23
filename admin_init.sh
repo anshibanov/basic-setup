@@ -21,6 +21,7 @@ else
     echo "========================="
     echo "Пользователь: admin_init"
     echo "Сгенерированный пароль: $PASS"
+    echo "Пароль сохранён в /root/.admin_init_password.txt"
     echo "========================="
     echo "Пользователь admin_init успешно создан."
     PASSWORD_FILE="/root/.admin_init_password.txt"
