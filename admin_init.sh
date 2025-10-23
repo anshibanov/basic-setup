@@ -47,5 +47,26 @@ EOF
 chmod 600 /home/admin_init/.ssh/authorized_keys
 chown -R admin_init:admin_init /home/admin_init/.ssh
 
+# Проверяем, запущен ли скрипт на Proxmox
+if [ -d "/etc/pve" ] && command -v pveum &>/dev/null; then
+    echo "========================="
+    echo "Обнаружена система Proxmox VE"
+    echo "Добавляем пользователя admin_init в Proxmox с правами Administrator..."
+    
+    # Проверяем, существует ли пользователь в Proxmox
+    if pveum user list | grep -q "admin_init@pam"; then
+        echo "Пользователь admin_init@pam уже существует в Proxmox."
+    else
+        # Добавляем пользователя в Proxmox с realm PAM
+        pveum user add admin_init@pam -comment "System Administrator" || true
+        echo "Пользователь admin_init@pam добавлен в Proxmox."
+    fi
+    
+    # Назначаем роль Administrator на корневом уровне (/)
+    pveum acl modify / --roles Administrator --users admin_init@pam
+    echo "Пользователю admin_init@pam назначена роль Administrator."
+    echo "Теперь пользователь может логиниться в Proxmox GUI."
+    echo "========================="
+fi
 
 echo "Готово!"
