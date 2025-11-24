@@ -1,124 +1,188 @@
 #!/usr/bin/env bash
 
-# Скрипт останавливается при любой ошибке
+# Exit on any error
 set -e
 
-# Проверяем, что скрипт запущен из-под root
-if [[ $EUID -ne 0 ]]; then
-  echo "Пожалуйста, запустите этот скрипт от имени root (или через sudo)."
-  exit 1
-fi
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
-# Генерируем случайный пароль
-PASS=$(openssl rand -base64 12)
+readonly USERNAME="admin_init"
+readonly PASSWORD_FILE="/root/.${USERNAME}_password.txt"
+readonly NTFY_TOPIC="https://ntfy.sh/Sg3N35kJvdkna1eA"
 
-# Проверяем, существует ли уже пользователь admin_init
-if id "admin_init" &>/dev/null; then
-    echo "Пользователь admin_init уже существует. Пропускаем создание..."
-else
-    # Создаем пользователя admin_init с домашней директорией и bash-шеллом
-    useradd -m -s /bin/bash -p "$(openssl passwd -1 "$PASS")" admin_init
-    echo "========================="
-    echo "Пользователь: admin_init"
-    echo "Сгенерированный пароль: $PASS"
-    echo "Пароль сохранён в /root/.admin_init_password.txt"
-    echo "========================="
-    echo "Пользователь admin_init успешно создан."
-    PASSWORD_FILE="/root/.admin_init_password.txt"
-    echo "Пароль admin_init: $PASS" > "$PASSWORD_FILE"
-    chmod 600 "$PASSWORD_FILE"
-fi
-
-# Добавляем пользователя в группу sudo
-usermod -aG sudo admin_init
-
-# Настраиваем sudo без запроса пароля
-cat << EOF > /etc/sudoers.d/90-admin_init
-admin_init ALL=(ALL) NOPASSWD:ALL
-EOF
-chmod 440 /etc/sudoers.d/90-admin_init
-
-# Создаем .ssh директорию и файл authorized_keys
-mkdir -p /home/admin_init/.ssh
-chmod 700 /home/admin_init/.ssh
-
-cat << 'EOF' > /home/admin_init/.ssh/authorized_keys
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIhwA1TX1DmrCX/8+SwxC0s89CJhKBYAeRWcZ0ew+2Vz admin_init
+# SSH public keys for authorized_keys
+readonly SSH_KEYS='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIhwA1TX1DmrCX/8+SwxC0s89CJhKBYAeRWcZ0ew+2Vz admin_init
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG5WNDdQOhqLHcR74n3HcLcXgdfQ0vjkRm3KqPxvDAG5 ansible@servapp.ru
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJzFqnmBbzi+PAAwftRHUfUB0f8zx2Xtt5EhFsPeWAQ orange
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJzFqnmBbzi+PAAwftRHUfUB0f8zx2Xtt5EhFsPeWAQ orange'
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "Пожалуйста, запустите этот скрипт от имени root (или через sudo)."
+        exit 1
+    fi
+}
+
+generate_password() {
+    openssl rand -base64 12
+}
+
+create_user() {
+    local username="$1"
+    local password="$2"
+
+    if id "$username" &>/dev/null; then
+        echo "Пользователь $username уже существует. Пропускаем создание..."
+        return 0
+    fi
+
+    useradd -m -s /bin/bash -p "$(openssl passwd -1 "$password")" "$username"
+
+    echo "========================="
+    echo "Пользователь: $username"
+    echo "Сгенерированный пароль: $password"
+    echo "Пароль сохранён в $PASSWORD_FILE"
+    echo "========================="
+    echo "Пользователь $username успешно создан."
+
+    echo "Пароль $username: $password" > "$PASSWORD_FILE"
+    chmod 600 "$PASSWORD_FILE"
+}
+
+setup_sudo() {
+    local username="$1"
+
+    # Add user to sudo group
+    usermod -aG sudo "$username"
+
+    # Configure passwordless sudo
+    cat << EOF > "/etc/sudoers.d/90-${username}"
+${username} ALL=(ALL) NOPASSWD:ALL
 EOF
+    chmod 440 "/etc/sudoers.d/90-${username}"
+}
 
-chmod 600 /home/admin_init/.ssh/authorized_keys
-chown -R admin_init:admin_init /home/admin_init/.ssh
+setup_ssh() {
+    local username="$1"
+    local home_dir="/home/${username}"
+    local ssh_dir="${home_dir}/.ssh"
+    local auth_keys="${ssh_dir}/authorized_keys"
 
-# Проверяем, запущен ли скрипт на Proxmox
-if [ -d "/etc/pve" ] && command -v pveum &>/dev/null; then
+    mkdir -p "$ssh_dir"
+    chmod 700 "$ssh_dir"
+
+    echo "$SSH_KEYS" > "$auth_keys"
+    chmod 600 "$auth_keys"
+    chown -R "${username}:${username}" "$ssh_dir"
+}
+
+setup_proxmox() {
+    local username="$1"
+    local pam_user="${username}@pam"
+
+    # Check if running on Proxmox
+    if [ ! -d "/etc/pve" ] || ! command -v pveum &>/dev/null; then
+        return 0
+    fi
+
     echo "========================="
     echo "Обнаружена система Proxmox VE"
-    echo "Добавляем пользователя admin_init в Proxmox с правами Administrator..."
-    
-    # Проверяем, существует ли пользователь в Proxmox
-    if pveum user list | grep -q "admin_init@pam"; then
-        echo "Пользователь admin_init@pam уже существует в Proxmox."
+    echo "Добавляем пользователя $username в Proxmox с правами Administrator..."
+
+    # Check if user exists in Proxmox
+    if pveum user list | grep -q "$pam_user"; then
+        echo "Пользователь $pam_user уже существует в Proxmox."
     else
-        # Добавляем пользователя в Proxmox с realm PAM
-        pveum user add admin_init@pam -comment "System Administrator" || true
-        echo "Пользователь admin_init@pam добавлен в Proxmox."
+        pveum user add "$pam_user" -comment "System Administrator" || true
+        echo "Пользователь $pam_user добавлен в Proxmox."
     fi
-    
-    # Назначаем роль Administrator на корневом уровне (/)
-    pveum acl modify / --roles Administrator --users admin_init@pam
-    echo "Пользователю admin_init@pam назначена роль Administrator."
+
+    # Assign Administrator role
+    pveum acl modify / --roles Administrator --users "$pam_user"
+    echo "Пользователю $pam_user назначена роль Administrator."
     echo "Теперь пользователь может логиниться в Proxmox GUI."
     echo "========================="
-fi
+}
 
-echo "Готово!"
+get_external_ip() {
+    curl -s --max-time 10 ifconfig.io || echo "N/A"
+}
 
-# Отправка уведомления через ntfy.sh (не критично, не прерываем скрипт при ошибке)
-{
-  echo "Отправка уведомления..."
+get_internal_ip() {
+    if command -v ip &>/dev/null; then
+        ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1 || echo "N/A"
+    else
+        echo "N/A"
+    fi
+}
 
-  # Проверяем наличие необходимых команд
-  if ! command -v curl &>/dev/null; then
-    echo "Предупреждение: curl не установлен, уведомление не будет отправлено"
-    exit 0
-  fi
+get_os_info() {
+    grep PRETTY_NAME /etc/os-release | cut -d '"' -f2 || echo "Unknown OS"
+}
 
-  # Получаем внешний IP
-  EXTERNAL_IP=$(curl -s --max-time 10 ifconfig.io || echo "N/A")
+send_notification() {
+    local username="$1"
 
-  # Получаем hostname
-  HOSTNAME=$(hostname)
+    echo "Отправка уведомления..."
 
-  # Получаем внутренний IP (первый не-loopback IPv4)
-  if command -v ip &>/dev/null; then
-    INTERNAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1 || echo "N/A")
-  else
-    INTERNAL_IP="N/A"
-  fi
+    # Check for required commands
+    if ! command -v curl &>/dev/null; then
+        echo "Предупреждение: curl не установлен, уведомление не будет отправлено"
+        return 0
+    fi
 
-  # Получаем информацию об ОС
-  OS_INFO=$(cat /etc/os-release | grep PRETTY_NAME | cut -d '"' -f2 || echo "Unknown OS")
+    # Gather server information
+    local external_ip=$(get_external_ip)
+    local internal_ip=$(get_internal_ip)
+    local hostname=$(hostname)
+    local os_info=$(get_os_info)
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
-  # Формируем сообщение
-  MESSAGE="🔧 Новый сервер настроен!
+    # Build message
+    local message="🔧 Новый сервер настроен!
 
-👤 Пользователь: admin_init
-🌐 Внешний IP: $EXTERNAL_IP
-🏠 Внутренний IP: $INTERNAL_IP
-🖥️  Hostname: $HOSTNAME
-💻 OS: $OS_INFO
-⏰ Время: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+👤 Пользователь: $username
+🌐 Внешний IP: $external_ip
+🏠 Внутренний IP: $internal_ip
+🖥️  Hostname: $hostname
+💻 OS: $os_info
+⏰ Время: $timestamp"
 
-  # Отправляем уведомление
-  if curl -s -H "Title: Server Setup Complete" \
-       -H "Priority: default" \
-       -H "Tags: white_check_mark,server" \
-       -d "$MESSAGE" \
-       https://ntfy.sh/Sg3N35kJvdkna1eA > /dev/null; then
-    echo "Уведомление отправлено в ntfy.sh топик Sg3N35kJvdkna1eA"
-  else
-    echo "Предупреждение: не удалось отправить уведомление"
-  fi
-} || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
+    # Send notification
+    if curl -s -H "Title: Server Setup Complete" \
+         -H "Priority: default" \
+         -H "Tags: white_check_mark,server" \
+         -d "$message" \
+         "$NTFY_TOPIC" > /dev/null; then
+        echo "Уведомление отправлено в ntfy.sh"
+    else
+        echo "Предупреждение: не удалось отправить уведомление"
+    fi
+}
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+main() {
+    check_root
+
+    local password=$(generate_password)
+
+    create_user "$USERNAME" "$password"
+    setup_sudo "$USERNAME"
+    setup_ssh "$USERNAME"
+    setup_proxmox "$USERNAME"
+
+    echo "Готово!"
+
+    # Send notification (non-critical, don't fail on error)
+    send_notification "$USERNAME" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
+}
+
+# Run main function
+main
