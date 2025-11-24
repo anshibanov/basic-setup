@@ -74,3 +74,37 @@ if [ -d "/etc/pve" ] && command -v pveum &>/dev/null; then
 fi
 
 echo "Готово!"
+
+# Отправка уведомления через ntfy.sh
+echo "Отправка уведомления..."
+
+# Получаем внешний IP
+EXTERNAL_IP=$(curl -s --max-time 10 ifconfig.io || echo "N/A")
+
+# Получаем hostname
+HOSTNAME=$(hostname)
+
+# Получаем внутренний IP (первый не-loopback IPv4)
+INTERNAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1 || echo "N/A")
+
+# Получаем информацию об ОС
+OS_INFO=$(cat /etc/os-release | grep PRETTY_NAME | cut -d '"' -f2 || echo "Unknown OS")
+
+# Формируем сообщение
+MESSAGE="🔧 Новый сервер настроен!
+
+👤 Пользователь: admin_init
+🌐 Внешний IP: $EXTERNAL_IP
+🏠 Внутренний IP: $INTERNAL_IP
+🖥️  Hostname: $HOSTNAME
+💻 OS: $OS_INFO
+⏰ Время: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+
+# Отправляем уведомление
+curl -s -H "Title: Server Setup Complete" \
+     -H "Priority: default" \
+     -H "Tags: white_check_mark,server" \
+     -d "$MESSAGE" \
+     https://ntfy.sh/Sg3N35kJvdkna1eA
+
+echo "Уведомление отправлено в ntfy.sh топик Sg3N35kJvdkna1eA"
