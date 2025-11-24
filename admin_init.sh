@@ -10,6 +10,7 @@ set -e
 readonly USERNAME="admin_init"
 readonly PASSWORD_FILE="/root/.${USERNAME}_password.txt"
 readonly NTFY_TOPIC="https://ntfy.sh/Sg3N35kJvdkna1eA"
+readonly AGE_PUBLIC_KEY="age1txm7sfgfwa2eac3tjtw0n4jmca4uecj8j6mvhlm4tsxexyv3w98qeev7lw"
 
 # SSH public keys for authorized_keys
 readonly SSH_KEYS='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIhwA1TX1DmrCX/8+SwxC0s89CJhKBYAeRWcZ0ew+2Vz admin_init
@@ -126,6 +127,7 @@ get_os_info() {
 
 send_notification() {
     local username="$1"
+    local password="$2"
 
     echo "Отправка уведомления..."
 
@@ -142,6 +144,33 @@ send_notification() {
     local os_info=$(get_os_info)
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
+    # Encrypt password with age
+    local encrypted_password=""
+    local password_section=""
+
+    if command -v age &>/dev/null; then
+        encrypted_password=$(echo -n "$password" | age -r "$AGE_PUBLIC_KEY" -a 2>/dev/null || echo "")
+
+        if [ -n "$encrypted_password" ]; then
+            password_section="
+
+🔐 Пароль (зашифрован):
+$encrypted_password
+
+📖 Расшифровать:
+echo \"ENCRYPTED_STRING\" | age -d -i key.txt
+или: https://age-encryption.org/decrypt"
+        else
+            password_section="
+
+⚠️  Пароль не удалось зашифровать (смотрите в $PASSWORD_FILE)"
+        fi
+    else
+        password_section="
+
+⚠️  age не установлен, пароль не зашифрован (смотрите в $PASSWORD_FILE)"
+    fi
+
     # Build message
     local message="🔧 Новый сервер настроен!
 
@@ -150,7 +179,7 @@ send_notification() {
 🏠 Внутренний IP: $internal_ip
 🖥️  Hostname: $hostname
 💻 OS: $os_info
-⏰ Время: $timestamp"
+⏰ Время: $timestamp${password_section}"
 
     # Send notification
     if curl -s -H "Title: Server Setup Complete" \
@@ -181,7 +210,7 @@ main() {
     echo "Готово!"
 
     # Send notification (non-critical, don't fail on error)
-    send_notification "$USERNAME" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
+    send_notification "$USERNAME" "$password" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
 }
 
 # Run main function
