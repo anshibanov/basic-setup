@@ -60,7 +60,7 @@ When modifying `admin_init.sh`:
 - Non-critical operations (like ntfy.sh notifications, password encryption) should be wrapped in error handling to prevent script termination
 - Changes to SSH keys in `authorized_keys` require updating lines 15-17 in the SSH_KEYS variable
 - The ntfy.sh topic is hardcoded at line 12: `https://ntfy.sh/Sg3N35kJvdkna1eA`
-- The Age public key for password encryption is hardcoded at line 13: `age1sdrr0z0f2uue3rh8t3dp6ce7m6d80g994wvcgphrm3a9r3qxnccs7h8dzc`
+- The Age public key for password encryption is hardcoded at line 13
 
 ## Dependencies
 
@@ -86,13 +86,12 @@ To decrypt the password from ntfy.sh notification, see [DECRYPT.md](DECRYPT.md) 
 
 **Quick method:**
 ```bash
-# Save encrypted string to file and decrypt
+# Copy ready-to-use command from ntfy.sh notification
 echo "-----BEGIN AGE ENCRYPTED FILE-----
 ...
------END AGE ENCRYPTED FILE-----" | age -d -i key.txt
+-----END AGE ENCRYPTED FILE-----" | age -d -i ~/.age/key.txt
 ```
 
-**Web method:** Visit https://age-encryption.org/decrypt and paste your private key + encrypted message.
 
 ### Fallback behavior
 

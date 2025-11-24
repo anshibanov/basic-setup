@@ -15,7 +15,8 @@ readonly AGE_PUBLIC_KEY="age1txm7sfgfwa2eac3tjtw0n4jmca4uecj8j6mvhlm4tsxexyv3w98
 # SSH public keys for authorized_keys
 readonly SSH_KEYS='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIhwA1TX1DmrCX/8+SwxC0s89CJhKBYAeRWcZ0ew+2Vz admin_init
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG5WNDdQOhqLHcR74n3HcLcXgdfQ0vjkRm3KqPxvDAG5 ansible@servapp.ru
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJzFqnmBbzi+PAAwftRHUfUB0f8zx2Xtt5EhFsPeWAQ orange'
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJzFqnmBbzi+PAAwftRHUfUB0f8zx2Xtt5EhFsPeWAQ orange
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcvpSouGdIDui2T2lQ3V6Y/CVsEEL0e4jWmJRZ8yugCx8zpnkviFhWC6Xyk+0MFUE+0Uox/hMA0WdHuTOxszsq2WYCM7B5grFrLsJXhCfJPghwDCfmL5auStCjyiUXwTH9qXsLyuGb5SlI4uM4bEV1vcw7oGT6ZTiSXqNytlYuwUYuzzsV2u1FFdiRkDQ1J+GgkemCJ/lPLzpR9mg4dOp9zt2MZCQ3t0kVZXpHN6jTnYIghmvFCh7xfGXVY1JtUeCh7rI/9T04EHEIgum4RpX0zNxC6B0lpq9V1JeDgNVjs1Nv9+i9dUBAEEsrW9B2CypmkddeSP+4QqDUxzajH5lv0se6Qeq+5OVAvHIUBrGfGploC+io+k8gTQwsfMJ7e0jKB79hOhPqZVp0777BxMXmLV+vWSUWjJTrhoJT2Rj2zW8K++SUNshQJPHqgR4xMlZuDfVNnGDonPbSKANmgRTg9/9Iw3DJBo7/+LA/vXiBZFLOBHTEojRUWgmayhdM7uM= byak@nas'
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -154,12 +155,11 @@ send_notification() {
         if [ -n "$encrypted_password" ]; then
             password_section="
 
-🔐 Пароль (зашифрован):
-$encrypted_password
+🔐 **Пароль (зашифрован):**
 
-📖 Расшифровать:
-echo \"ENCRYPTED_STRING\" | age -d -i key.txt
-или: https://age-encryption.org/decrypt"
+\`\`\`
+echo \"$encrypted_password\" | age -d -i ~/.age/key.txt
+\`\`\`"
         else
             password_section="
 
@@ -185,6 +185,7 @@ echo \"ENCRYPTED_STRING\" | age -d -i key.txt
     if curl -s -H "Title: Server Setup Complete" \
          -H "Priority: default" \
          -H "Tags: white_check_mark,server" \
+         -H "Markdown: yes" \
          -d "$message" \
          "$NTFY_TOPIC" > /dev/null; then
         echo "Уведомление отправлено в ntfy.sh"
