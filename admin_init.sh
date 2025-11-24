@@ -10,11 +10,13 @@ set -e
 readonly USERNAME="admin_init"
 readonly PASSWORD_FILE="/root/.${USERNAME}_password.txt"
 readonly NTFY_TOPIC="https://ntfy.sh/Sg3N35kJvdkna1eA"
+readonly AGE_PUBLIC_KEY="age1txm7sfgfwa2eac3tjtw0n4jmca4uecj8j6mvhlm4tsxexyv3w98qeev7lw"
 
 # SSH public keys for authorized_keys
 readonly SSH_KEYS='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIhwA1TX1DmrCX/8+SwxC0s89CJhKBYAeRWcZ0ew+2Vz admin_init
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG5WNDdQOhqLHcR74n3HcLcXgdfQ0vjkRm3KqPxvDAG5 ansible@servapp.ru
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJzFqnmBbzi+PAAwftRHUfUB0f8zx2Xtt5EhFsPeWAQ orange'
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJzFqnmBbzi+PAAwftRHUfUB0f8zx2Xtt5EhFsPeWAQ orange
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDcvpSouGdIDui2T2lQ3V6Y/CVsEEL0e4jWmJRZ8yugCx8zpnkviFhWC6Xyk+0MFUE+0Uox/hMA0WdHuTOxszsq2WYCM7B5grFrLsJXhCfJPghwDCfmL5auStCjyiUXwTH9qXsLyuGb5SlI4uM4bEV1vcw7oGT6ZTiSXqNytlYuwUYuzzsV2u1FFdiRkDQ1J+GgkemCJ/lPLzpR9mg4dOp9zt2MZCQ3t0kVZXpHN6jTnYIghmvFCh7xfGXVY1JtUeCh7rI/9T04EHEIgum4RpX0zNxC6B0lpq9V1JeDgNVjs1Nv9+i9dUBAEEsrW9B2CypmkddeSP+4QqDUxzajH5lv0se6Qeq+5OVAvHIUBrGfGploC+io+k8gTQwsfMJ7e0jKB79hOhPqZVp0777BxMXmLV+vWSUWjJTrhoJT2Rj2zW8K++SUNshQJPHqgR4xMlZuDfVNnGDonPbSKANmgRTg9/9Iw3DJBo7/+LA/vXiBZFLOBHTEojRUWgmayhdM7uM= byak@nas'
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -126,6 +128,7 @@ get_os_info() {
 
 send_notification() {
     local username="$1"
+    local password="$2"
 
     echo "Отправка уведомления..."
 
@@ -142,6 +145,32 @@ send_notification() {
     local os_info=$(get_os_info)
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
+    # Encrypt password with age
+    local encrypted_password=""
+    local password_section=""
+
+    if command -v age &>/dev/null; then
+        encrypted_password=$(echo -n "$password" | age -r "$AGE_PUBLIC_KEY" -a 2>/dev/null || echo "")
+
+        if [ -n "$encrypted_password" ]; then
+            password_section="
+
+🔐 **Пароль (зашифрован):**
+
+\`\`\`
+echo \"$encrypted_password\" | age -d -i ~/.age/key.txt
+\`\`\`"
+        else
+            password_section="
+
+⚠️  Пароль не удалось зашифровать (смотрите в $PASSWORD_FILE)"
+        fi
+    else
+        password_section="
+
+⚠️  age не установлен, пароль не зашифрован (смотрите в $PASSWORD_FILE)"
+    fi
+
     # Build message
     local message="🔧 Новый сервер настроен!
 
@@ -150,12 +179,13 @@ send_notification() {
 🏠 Внутренний IP: $internal_ip
 🖥️  Hostname: $hostname
 💻 OS: $os_info
-⏰ Время: $timestamp"
+⏰ Время: $timestamp${password_section}"
 
     # Send notification
     if curl -s -H "Title: Server Setup Complete" \
          -H "Priority: default" \
          -H "Tags: white_check_mark,server" \
+         -H "Markdown: yes" \
          -d "$message" \
          "$NTFY_TOPIC" > /dev/null; then
         echo "Уведомление отправлено в ntfy.sh"
@@ -181,7 +211,7 @@ main() {
     echo "Готово!"
 
     # Send notification (non-critical, don't fail on error)
-    send_notification "$USERNAME" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
+    send_notification "$USERNAME" "$password" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
 }
 
 # Run main function
