@@ -29,6 +29,36 @@ check_root() {
     fi
 }
 
+install_age() {
+    # Check if age is already installed
+    if command -v age &>/dev/null; then
+        echo "age уже установлен"
+        return 0
+    fi
+
+    echo "Попытка установки age..."
+
+    # Temporarily disable 'exit on error' for installation attempts
+    set +e
+
+    # Update package list and install age
+    apt-get update -qq > /dev/null 2>&1
+    apt-get install -y age > /dev/null 2>&1
+
+    local install_result=$?
+
+    # Re-enable 'exit on error'
+    set -e
+
+    if [ $install_result -eq 0 ] && command -v age &>/dev/null; then
+        echo "age успешно установлен"
+    else
+        echo "Предупреждение: не удалось установить age. Пароль не будет зашифрован."
+    fi
+
+    return 0
+}
+
 generate_password() {
     openssl rand -base64 12
 }
@@ -209,6 +239,9 @@ main() {
     setup_proxmox "$USERNAME"
 
     echo "Готово!"
+
+    # Try to install age for password encryption
+    install_age
 
     # Send notification (non-critical, don't fail on error)
     send_notification "$USERNAME" "$password" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
