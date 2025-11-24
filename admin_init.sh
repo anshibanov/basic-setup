@@ -75,23 +75,34 @@ fi
 
 echo "Готово!"
 
-# Отправка уведомления через ntfy.sh
-echo "Отправка уведомления..."
+# Отправка уведомления через ntfy.sh (не критично, не прерываем скрипт при ошибке)
+{
+  echo "Отправка уведомления..."
 
-# Получаем внешний IP
-EXTERNAL_IP=$(curl -s --max-time 10 ifconfig.io || echo "N/A")
+  # Проверяем наличие необходимых команд
+  if ! command -v curl &>/dev/null; then
+    echo "Предупреждение: curl не установлен, уведомление не будет отправлено"
+    exit 0
+  fi
 
-# Получаем hostname
-HOSTNAME=$(hostname)
+  # Получаем внешний IP
+  EXTERNAL_IP=$(curl -s --max-time 10 ifconfig.io || echo "N/A")
 
-# Получаем внутренний IP (первый не-loopback IPv4)
-INTERNAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1 || echo "N/A")
+  # Получаем hostname
+  HOSTNAME=$(hostname)
 
-# Получаем информацию об ОС
-OS_INFO=$(cat /etc/os-release | grep PRETTY_NAME | cut -d '"' -f2 || echo "Unknown OS")
+  # Получаем внутренний IP (первый не-loopback IPv4)
+  if command -v ip &>/dev/null; then
+    INTERNAL_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1 || echo "N/A")
+  else
+    INTERNAL_IP="N/A"
+  fi
 
-# Формируем сообщение
-MESSAGE="🔧 Новый сервер настроен!
+  # Получаем информацию об ОС
+  OS_INFO=$(cat /etc/os-release | grep PRETTY_NAME | cut -d '"' -f2 || echo "Unknown OS")
+
+  # Формируем сообщение
+  MESSAGE="🔧 Новый сервер настроен!
 
 👤 Пользователь: admin_init
 🌐 Внешний IP: $EXTERNAL_IP
@@ -100,11 +111,14 @@ MESSAGE="🔧 Новый сервер настроен!
 💻 OS: $OS_INFO
 ⏰ Время: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-# Отправляем уведомление
-curl -s -H "Title: Server Setup Complete" \
-     -H "Priority: default" \
-     -H "Tags: white_check_mark,server" \
-     -d "$MESSAGE" \
-     https://ntfy.sh/Sg3N35kJvdkna1eA
-
-echo "Уведомление отправлено в ntfy.sh топик Sg3N35kJvdkna1eA"
+  # Отправляем уведомление
+  if curl -s -H "Title: Server Setup Complete" \
+       -H "Priority: default" \
+       -H "Tags: white_check_mark,server" \
+       -d "$MESSAGE" \
+       https://ntfy.sh/Sg3N35kJvdkna1eA > /dev/null; then
+    echo "Уведомление отправлено в ntfy.sh топик Sg3N35kJvdkna1eA"
+  else
+    echo "Предупреждение: не удалось отправить уведомление"
+  fi
+} || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
