@@ -107,7 +107,33 @@ setup_ssh() {
     mkdir -p "$ssh_dir"
     chmod 700 "$ssh_dir"
 
-    echo "$SSH_KEYS" > "$auth_keys"
+    # Create authorized_keys if it doesn't exist
+    if [ ! -f "$auth_keys" ]; then
+        touch "$auth_keys"
+    fi
+
+    # Check and add missing SSH keys
+    local keys_added=0
+    while IFS= read -r key; do
+        # Skip empty lines
+        [ -z "$key" ] && continue
+
+        # Extract the key type and key data (first two fields) for comparison
+        local key_data=$(echo "$key" | awk '{print $1, $2}')
+
+        if ! grep -qF "$key_data" "$auth_keys" 2>/dev/null; then
+            echo "$key" >> "$auth_keys"
+            keys_added=$((keys_added + 1))
+            echo "Добавлен SSH ключ: $(echo "$key" | awk '{print $3}')"
+        fi
+    done <<< "$SSH_KEYS"
+
+    if [ $keys_added -eq 0 ]; then
+        echo "Все SSH ключи уже установлены для пользователя $username"
+    else
+        echo "Добавлено $keys_added SSH ключ(ей) для пользователя $username"
+    fi
+
     chmod 600 "$auth_keys"
     chown -R "${username}:${username}" "$ssh_dir"
 }
