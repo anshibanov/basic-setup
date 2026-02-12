@@ -193,6 +193,8 @@ EOF
 
     # Validate sshd configuration
     echo "Проверка конфигурации sshd..."
+    # sshd -t requires privilege separation directory
+    mkdir -p /run/sshd
     if ! sshd -t; then
         echo "ОШИБКА: Конфигурация sshd невалидна! Откатываем изменения..."
         # Remove our drop-in if it was created
