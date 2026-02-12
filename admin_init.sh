@@ -138,6 +138,92 @@ setup_ssh() {
     chown -R "${username}:${username}" "$ssh_dir"
 }
 
+disable_password_auth() {
+    echo "Отключение парольной аутентификации SSH..."
+
+    local sshd_config="/etc/ssh/sshd_config"
+    local sshd_config_dir="/etc/ssh/sshd_config.d"
+
+    # Comment out PasswordAuthentication and KbdInteractiveAuthentication
+    # in all config files to avoid conflicts (first match wins in sshd)
+    local config_files=("$sshd_config")
+    if [ -d "$sshd_config_dir" ]; then
+        while IFS= read -r -d '' f; do
+            config_files+=("$f")
+        done < <(find "$sshd_config_dir" -name '*.conf' -print0 2>/dev/null)
+    fi
+
+    for conf in "${config_files[@]}"; do
+        [ -f "$conf" ] || continue
+        # Comment out existing PasswordAuthentication lines (active, not already commented)
+        if grep -qE '^\s*PasswordAuthentication\s' "$conf"; then
+            sed -i 's/^\s*PasswordAuthentication\s/# &/' "$conf"
+            echo "  Закомментировано PasswordAuthentication в $conf"
+        fi
+        # Comment out existing KbdInteractiveAuthentication lines
+        if grep -qE '^\s*KbdInteractiveAuthentication\s' "$conf"; then
+            sed -i 's/^\s*KbdInteractiveAuthentication\s/# &/' "$conf"
+            echo "  Закомментировано KbdInteractiveAuthentication в $conf"
+        fi
+        # Comment out existing ChallengeResponseAuthentication lines (legacy name)
+        if grep -qE '^\s*ChallengeResponseAuthentication\s' "$conf"; then
+            sed -i 's/^\s*ChallengeResponseAuthentication\s/# &/' "$conf"
+            echo "  Закомментировано ChallengeResponseAuthentication в $conf"
+        fi
+    done
+
+    # Create a drop-in config with highest priority to guarantee the setting
+    if [ -d "$sshd_config_dir" ]; then
+        cat > "${sshd_config_dir}/99-disable-password-auth.conf" << 'EOF'
+# Managed by admin_init.sh - disable password authentication
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+        echo "  Создан ${sshd_config_dir}/99-disable-password-auth.conf"
+    else
+        # No drop-in directory — append to main config
+        {
+            echo ""
+            echo "# Managed by admin_init.sh - disable password authentication"
+            echo "PasswordAuthentication no"
+            echo "KbdInteractiveAuthentication no"
+        } >> "$sshd_config"
+        echo "  Добавлено в $sshd_config"
+    fi
+
+    # Validate sshd configuration
+    echo "Проверка конфигурации sshd..."
+    if ! sshd -t; then
+        echo "ОШИБКА: Конфигурация sshd невалидна! Откатываем изменения..."
+        # Remove our drop-in if it was created
+        rm -f "${sshd_config_dir}/99-disable-password-auth.conf"
+        exit 1
+    fi
+    echo "  Конфигурация sshd валидна"
+
+    # Restart sshd to apply changes
+    echo "Перезапуск sshd..."
+    if command -v systemctl &>/dev/null; then
+        # Debian/Ubuntu use 'ssh', RHEL/CentOS use 'sshd'
+        if systemctl is-active --quiet ssh 2>/dev/null; then
+            systemctl restart ssh
+            echo "  Сервис ssh перезапущен"
+        elif systemctl is-active --quiet sshd 2>/dev/null; then
+            systemctl restart sshd
+            echo "  Сервис sshd перезапущен"
+        else
+            echo "Предупреждение: не удалось определить имя сервиса sshd"
+        fi
+    elif command -v service &>/dev/null; then
+        service ssh restart 2>/dev/null || service sshd restart 2>/dev/null || echo "Предупреждение: не удалось перезапустить sshd"
+        echo "  sshd перезапущен через service"
+    else
+        echo "Предупреждение: не найдены systemctl/service для перезапуска sshd"
+    fi
+
+    echo "Парольная аутентификация SSH отключена."
+}
+
 setup_proxmox() {
     local username="$1"
     local pam_user="${username}@pam"
@@ -269,6 +355,8 @@ main() {
         echo "Обнаружен пользователь ubuntu. Добавляем SSH ключи..."
         setup_ssh "ubuntu"
     fi
+
+    disable_password_auth
 
     echo "Готово!"
 

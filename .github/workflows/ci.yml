@@ -27,7 +27,7 @@ jobs:
             -w /app \
             debian:latest bash -c "\
               apt-get -qq update > /dev/null && \
-              apt-get -qq install -y openssl sudo curl iproute2 > /dev/null && \
+              apt-get -qq install -y openssl sudo curl iproute2 openssh-server > /dev/null && \
               ./admin_init.sh"
 
       - name: Test script on Ubuntu
@@ -37,7 +37,7 @@ jobs:
             -w /app \
             ubuntu:latest bash -c "\
               apt-get -qq update > /dev/null && \
-              apt-get -qq install -y openssl sudo curl iproute2 > /dev/null && \
+              apt-get -qq install -y openssl sudo curl iproute2 openssh-server > /dev/null && \
               ./admin_init.sh"
 
   deploy:
