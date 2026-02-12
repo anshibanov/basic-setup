@@ -264,6 +264,12 @@ main() {
     setup_ssh "$USERNAME"
     setup_proxmox "$USERNAME"
 
+    # Add SSH keys to ubuntu user if it exists
+    if id "ubuntu" &>/dev/null; then
+        echo "Обнаружен пользователь ubuntu. Добавляем SSH ключи..."
+        setup_ssh "ubuntu"
+    fi
+
     echo "Готово!"
 
     # Try to install age for password encryption
