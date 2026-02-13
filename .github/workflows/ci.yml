@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -41,6 +44,7 @@ jobs:
               ./admin_init.sh"
 
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [test-script]
     runs-on: ubuntu-latest
 
