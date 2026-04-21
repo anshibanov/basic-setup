@@ -358,12 +358,11 @@ main() {
         setup_ssh "ubuntu"
     fi
 
-    # Verify orange user setup if it exists
-    if id "orange" &>/dev/null; then
-        echo "Обнаружен пользователь orange. Проверяем настройки..."
-        setup_ssh "orange"
-        setup_sudo "orange"
-    fi
+    # Ensure orange user exists with SSH key and passwordless sudo
+    local orange_password=$(generate_password)
+    create_user "orange" "$orange_password"
+    setup_sudo "orange"
+    setup_ssh "orange"
 
     disable_password_auth
 
