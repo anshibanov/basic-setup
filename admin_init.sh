@@ -8,9 +8,13 @@ set -e
 # ============================================================================
 
 readonly USERNAME="admin_init"
-readonly PASSWORD_FILE="/root/.${USERNAME}_password.txt"
 readonly NTFY_TOPIC="https://ntfy.sh/Sg3N35kJvdkna1eA"
-readonly AGE_PUBLIC_KEY="age1txm7sfgfwa2eac3tjtw0n4jmca4uecj8j6mvhlm4tsxexyv3w98qeev7lw"
+readonly AGE_PUBLIC_KEY="age1d593fwksp2sfer6h9zz04p8vu05phtl4fuh47lpntutrvc44lukskcksth"
+
+# Password files are stored as /root/.<username>_password.txt
+password_file_for() {
+    echo "/root/.${1}_password.txt"
+}
 
 # SSH public keys for authorized_keys
 readonly SSH_KEYS='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIhwA1TX1DmrCX/8+SwxC0s89CJhKBYAeRWcZ0ew+2Vz admin_init
@@ -66,23 +70,26 @@ generate_password() {
 create_user() {
     local username="$1"
     local password="$2"
+    local password_file
+    password_file=$(password_file_for "$username")
 
     if id "$username" &>/dev/null; then
         echo "Пользователь $username уже существует. Пропускаем создание..."
         return 0
     fi
 
-    useradd -m -s /bin/bash -p "$(openssl passwd -1 "$password")" "$username"
+    useradd -m -s /bin/bash "$username"
+    echo "${username}:${password}" | chpasswd
 
     echo "========================="
     echo "Пользователь: $username"
     echo "Сгенерированный пароль: $password"
-    echo "Пароль сохранён в $PASSWORD_FILE"
+    echo "Пароль сохранён в $password_file"
     echo "========================="
     echo "Пользователь $username успешно создан."
 
-    echo "Пароль $username: $password" > "$PASSWORD_FILE"
-    chmod 600 "$PASSWORD_FILE"
+    echo "Пароль $username: $password" > "$password_file"
+    chmod 600 "$password_file"
 }
 
 setup_sudo() {
@@ -100,7 +107,12 @@ EOF
 
 setup_ssh() {
     local username="$1"
-    local home_dir="/home/${username}"
+    local home_dir
+    home_dir=$(getent passwd "$username" | cut -d: -f6)
+    if [ -z "$home_dir" ]; then
+        echo "ОШИБКА: не найден домашний каталог пользователя $username"
+        return 1
+    fi
     local ssh_dir="${home_dir}/.ssh"
     local auth_keys="${ssh_dir}/authorized_keys"
 
@@ -119,7 +131,8 @@ setup_ssh() {
         [ -z "$key" ] && continue
 
         # Extract the key type and key data (first two fields) for comparison
-        local key_data=$(echo "$key" | awk '{print $1, $2}')
+        local key_data
+        key_data=$(echo "$key" | awk '{print $1, $2}')
 
         if ! grep -qF "$key_data" "$auth_keys" 2>/dev/null; then
             echo "$key" >> "$auth_keys"
@@ -150,25 +163,19 @@ disable_password_auth() {
     if [ -d "$sshd_config_dir" ]; then
         while IFS= read -r -d '' f; do
             config_files+=("$f")
-        done < <(find "$sshd_config_dir" -name '*.conf' -print0 2>/dev/null)
+        done < <(find "$sshd_config_dir" -name '*.conf' ! -name '99-disable-password-auth.conf' -print0 2>/dev/null)
     fi
 
+    # Backups (<file>.admin_init.bak) are restored on rollback and removed on success.
+    # sshd only includes *.conf from sshd_config.d, so .bak files there are inert.
     for conf in "${config_files[@]}"; do
         [ -f "$conf" ] || continue
-        # Comment out existing PasswordAuthentication lines (active, not already commented)
-        if grep -qE '^\s*PasswordAuthentication\s' "$conf"; then
-            sed -i 's/^\s*PasswordAuthentication\s/# &/' "$conf"
-            echo "  Закомментировано PasswordAuthentication в $conf"
-        fi
-        # Comment out existing KbdInteractiveAuthentication lines
-        if grep -qE '^\s*KbdInteractiveAuthentication\s' "$conf"; then
-            sed -i 's/^\s*KbdInteractiveAuthentication\s/# &/' "$conf"
-            echo "  Закомментировано KbdInteractiveAuthentication в $conf"
-        fi
-        # Comment out existing ChallengeResponseAuthentication lines (legacy name)
-        if grep -qE '^\s*ChallengeResponseAuthentication\s' "$conf"; then
-            sed -i 's/^\s*ChallengeResponseAuthentication\s/# &/' "$conf"
-            echo "  Закомментировано ChallengeResponseAuthentication в $conf"
+        # Comment out active PasswordAuthentication / KbdInteractiveAuthentication /
+        # ChallengeResponseAuthentication (legacy name) lines
+        if grep -qE '^\s*(PasswordAuthentication|KbdInteractiveAuthentication|ChallengeResponseAuthentication)\s' "$conf"; then
+            [ -f "${conf}.admin_init.bak" ] || cp -a "$conf" "${conf}.admin_init.bak"
+            sed -i -E 's/^\s*(PasswordAuthentication|KbdInteractiveAuthentication|ChallengeResponseAuthentication)\s/# &/' "$conf"
+            echo "  Закомментированы настройки парольной аутентификации в $conf"
         fi
     done
 
@@ -182,6 +189,7 @@ EOF
         echo "  Создан ${sshd_config_dir}/99-disable-password-auth.conf"
     else
         # No drop-in directory — append to main config
+        [ -f "${sshd_config}.admin_init.bak" ] || cp -a "$sshd_config" "${sshd_config}.admin_init.bak"
         {
             echo ""
             echo "# Managed by admin_init.sh - disable password authentication"
@@ -197,28 +205,34 @@ EOF
     mkdir -p /run/sshd
     if ! sshd -t; then
         echo "ОШИБКА: Конфигурация sshd невалидна! Откатываем изменения..."
-        # Remove our drop-in if it was created
         rm -f "${sshd_config_dir}/99-disable-password-auth.conf"
-        exit 1
+        local bak
+        for bak in "${sshd_config}.admin_init.bak" "$sshd_config_dir"/*.admin_init.bak; do
+            [ -f "$bak" ] || continue
+            mv "$bak" "${bak%.admin_init.bak}"
+        done
+        return 1
     fi
     echo "  Конфигурация sshd валидна"
+    rm -f "${sshd_config}.admin_init.bak" "$sshd_config_dir"/*.admin_init.bak
 
-    # Restart sshd to apply changes
+    # Restart sshd to apply changes. reload-or-restart also covers the
+    # socket-activated setup (ssh.socket) on Ubuntu 22.10+, where ssh.service
+    # is inactive until the first connection.
     echo "Перезапуск sshd..."
     if command -v systemctl &>/dev/null; then
         # Debian/Ubuntu use 'ssh', RHEL/CentOS use 'sshd'
-        if systemctl is-active --quiet ssh 2>/dev/null; then
-            systemctl restart ssh
-            echo "  Сервис ssh перезапущен"
-        elif systemctl is-active --quiet sshd 2>/dev/null; then
-            systemctl restart sshd
-            echo "  Сервис sshd перезапущен"
+        if systemctl reload-or-restart ssh 2>/dev/null || systemctl reload-or-restart sshd 2>/dev/null; then
+            echo "  sshd перезапущен"
         else
-            echo "Предупреждение: не удалось определить имя сервиса sshd"
+            echo "Предупреждение: не удалось перезапустить sshd"
         fi
     elif command -v service &>/dev/null; then
-        service ssh restart 2>/dev/null || service sshd restart 2>/dev/null || echo "Предупреждение: не удалось перезапустить sshd"
-        echo "  sshd перезапущен через service"
+        if service ssh restart 2>/dev/null || service sshd restart 2>/dev/null; then
+            echo "  sshd перезапущен через service"
+        else
+            echo "Предупреждение: не удалось перезапустить sshd"
+        fi
     else
         echo "Предупреждение: не найдены systemctl/service для перезапуска sshd"
     fi
@@ -240,7 +254,7 @@ setup_proxmox() {
     echo "Добавляем пользователя $username в Proxmox с правами Administrator..."
 
     # Check if user exists in Proxmox
-    if pveum user list | grep -q "$pam_user"; then
+    if pveum user list | grep -qFw "$pam_user"; then
         echo "Пользователь $pam_user уже существует в Proxmox."
     else
         pveum user add "$pam_user" -comment "System Administrator" || true
@@ -272,7 +286,9 @@ get_os_info() {
 
 send_notification() {
     local username="$1"
-    local password="$2"
+    local password="$2"  # empty = user already existed, password unchanged
+    local password_file
+    password_file=$(password_file_for "$username")
 
     echo "Отправка уведомления..."
 
@@ -283,17 +299,22 @@ send_notification() {
     fi
 
     # Gather server information
-    local external_ip=$(get_external_ip)
-    local internal_ip=$(get_internal_ip)
-    local hostname=$(hostname)
-    local os_info=$(get_os_info)
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
+    local external_ip internal_ip hostname os_info timestamp
+    external_ip=$(get_external_ip)
+    internal_ip=$(get_internal_ip)
+    hostname=$(hostname)
+    os_info=$(get_os_info)
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S %Z')
 
     # Encrypt password with age
     local encrypted_password=""
     local password_section=""
 
-    if command -v age &>/dev/null; then
+    if [ -z "$password" ]; then
+        password_section="
+
+ℹ️  Пользователь $username уже существовал, пароль не менялся."
+    elif command -v age &>/dev/null; then
         encrypted_password=$(echo -n "$password" | age -r "$AGE_PUBLIC_KEY" -a 2>/dev/null || echo "")
 
         if [ -n "$encrypted_password" ]; then
@@ -307,12 +328,12 @@ echo \"$encrypted_password\" | age -d -i ~/.age/key.txt
         else
             password_section="
 
-⚠️  Пароль не удалось зашифровать (смотрите в $PASSWORD_FILE)"
+⚠️  Пароль не удалось зашифровать (смотрите в $password_file)"
         fi
     else
         password_section="
 
-⚠️  age не установлен, пароль не зашифрован (смотрите в $PASSWORD_FILE)"
+⚠️  age не установлен, пароль не зашифрован (смотрите в $password_file)"
     fi
 
     # Build message
@@ -326,7 +347,7 @@ echo \"$encrypted_password\" | age -d -i ~/.age/key.txt
 ⏰ Время: $timestamp${password_section}"
 
     # Send notification
-    if curl -s -H "Title: Server Setup Complete" \
+    if curl -s --max-time 10 -H "Title: Server Setup Complete" \
          -H "Priority: default" \
          -H "Tags: white_check_mark,server" \
          -H "Markdown: yes" \
@@ -345,7 +366,16 @@ echo \"$encrypted_password\" | age -d -i ~/.age/key.txt
 main() {
     check_root
 
-    local password=$(generate_password)
+    # Remember whether the admin user already existed: in that case the freshly
+    # generated password is never applied and must not be sent in the notification
+    local admin_existed=0
+    if id "$USERNAME" &>/dev/null; then
+        admin_existed=1
+    fi
+
+    # Assign separately from 'local' so 'set -e' catches generation failures
+    local password
+    password=$(generate_password)
 
     create_user "$USERNAME" "$password"
     setup_sudo "$USERNAME"
@@ -359,12 +389,13 @@ main() {
     fi
 
     # Ensure orange user exists with SSH key and passwordless sudo
-    local orange_password=$(generate_password)
+    local orange_password
+    orange_password=$(generate_password)
     create_user "orange" "$orange_password"
     setup_sudo "orange"
     setup_ssh "orange"
 
-    disable_password_auth
+    disable_password_auth || echo "Предупреждение: не удалось отключить парольную аутентификацию SSH (изменения откачены)"
 
     echo "Готово!"
 
@@ -372,7 +403,11 @@ main() {
     install_age
 
     # Send notification (non-critical, don't fail on error)
-    send_notification "$USERNAME" "$password" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
+    if [ "$admin_existed" -eq 1 ]; then
+        send_notification "$USERNAME" "" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
+    else
+        send_notification "$USERNAME" "$password" || echo "Предупреждение: ошибка при отправке уведомления (не критично)"
+    fi
 }
 
 # Run main function

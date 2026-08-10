@@ -1,1 +1,6 @@
 .ansible/.lock
+
+# Never commit Age keys or other secrets
+key.txt
+*.key
+.age/

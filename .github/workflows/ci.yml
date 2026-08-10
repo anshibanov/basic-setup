@@ -1,4 +1,4 @@
-name: Deploy admin_init.sh to GitHub Pages
+name: CI
 
 on:
   push:
@@ -14,49 +14,63 @@ permissions:
   id-token: write
 
 jobs:
-  test-script:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Make script executable
-        run: chmod +x admin_init.sh
+      - name: Run shellcheck
+        run: shellcheck admin_init.sh tests/container-test.sh
 
-      - name: Test script on Debian
+  test-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:13
+          - ubuntu:26.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Make scripts executable
+        run: chmod +x admin_init.sh tests/container-test.sh
+
+      - name: Test script on ${{ matrix.image }}
         run: |
           docker run --rm \
             -v ${{ github.workspace }}:/app \
             -w /app \
-            debian:latest bash -c "\
+            ${{ matrix.image }} bash -c "\
               apt-get -qq update > /dev/null && \
               apt-get -qq install -y openssl sudo curl iproute2 openssh-server > /dev/null && \
-              ./admin_init.sh"
-
-      - name: Test script on Ubuntu
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/app \
-            -w /app \
-            ubuntu:latest bash -c "\
-              apt-get -qq update > /dev/null && \
-              apt-get -qq install -y openssl sudo curl iproute2 openssh-server > /dev/null && \
-              ./admin_init.sh"
+              ./tests/container-test.sh"
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test-script]
+    needs: [lint, test-script]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Verify admin_init.sh exists
-        run: ls -l admin_init.sh || exit 1
+        run: ls -l admin_init.sh
 
       - name: Create public directory
         run: |
@@ -67,12 +81,13 @@ jobs:
         run: ls -l public/
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: public
           name: github-pages
 
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
         with:
           artifact_name: github-pages
