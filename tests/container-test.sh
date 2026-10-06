@@ -6,6 +6,13 @@
 
 set -euo pipefail
 
+# Tests must not send real notifications or disclose container metadata.
+test_bin=$(mktemp -d)
+trap 'rm -rf "$test_bin"' EXIT
+printf '#!/bin/sh\nexit 0\n' > "$test_bin/curl"
+chmod 755 "$test_bin/curl"
+export PATH="$test_bin:$PATH"
+
 assert() {
     local description="$1"
     shift
@@ -63,4 +70,5 @@ assert "пароль orange не изменился" test "$(cat /root/.orange_p
 assert "нет остаточных бэкапов sshd-конфига" \
     bash -c "! ls /etc/ssh/sshd_config.admin_init.bak /etc/ssh/sshd_config.d/*.admin_init.bak 2>/dev/null | grep -q ."
 
+bash ./tests/ssh-config-test.sh
 echo "=== Все проверки пройдены ==="
