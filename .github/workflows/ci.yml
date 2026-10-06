@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run shellcheck
-        run: shellcheck admin_init.sh tests/container-test.sh
+        run: shellcheck admin_init.sh tests/*.sh
 
   test-script:
     runs-on: ubuntu-latest
@@ -47,12 +47,46 @@ jobs:
             -w /app \
             ${{ matrix.image }} bash -c "\
               apt-get -qq update > /dev/null && \
-              apt-get -qq install -y openssl sudo curl iproute2 openssh-server > /dev/null && \
+              apt-get -qq install -y openssl sudo curl iproute2 openssh-server age > /dev/null && \
               ./tests/container-test.sh"
+
+  test-systemd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [debian:13, ubuntu:26.04]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build systemd test image
+        run: docker build --build-arg BASE=${{ matrix.image }} -f tests/systemd.Dockerfile -t basic-setup-systemd:test .
+
+      - name: Test service and socket activation
+        run: bash tests/systemd-test.sh basic-setup-systemd:test
+
+  test-proxmox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build verified Proxmox test image
+        run: docker build -f tests/proxmox.Dockerfile -t basic-setup-proxmox:test .
+
+      - name: Test real Proxmox access control
+        run: |
+          docker run --rm --privileged --cgroupns private --network none \
+            --hostname basic-setup-pve-validation \
+            -v "${{ github.workspace }}:/app:ro" -w /app \
+            basic-setup-proxmox:test bash tests/proxmox-test.sh
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, test-script]
+    needs: [lint, test-script, test-systemd, test-proxmox]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:

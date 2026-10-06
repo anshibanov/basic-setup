@@ -77,8 +77,14 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) выполняет:
 
 При каждом push и pull request в `main` скрипт запускается в Docker-контейнерах:
 
-- **Debian** (`debian:latest`)
-- **Ubuntu** (`ubuntu:latest`)
+- **Debian** (`debian:13`)
+- **Ubuntu** (`ubuntu:26.04`)
+
+Тест выполняет два запуска, проверяет пользователей, sudo, ключи и сохранение паролей. Регрессионные проверки SSH покрывают регистр директив, отсутствие `Include`, блоки `Match`, повторный запуск и откат при ошибках валидации и перезапуска. Проверяется также соединение с запущенным sshd. В тестах `curl` заменён заглушкой: уведомления ntfy.sh не отправляются.
+
+Отдельные задания проверяют настоящий systemd как PID 1: обычный запуск `ssh.service` и активацию через `ssh.socket` на обеих ОС. Проверяется реальный вход по ключу и отсутствие парольных методов у работающего сервера.
+
+Проверка Proxmox 9 использует официальные подписанные пакеты `pveum` и `pmxcfs` в локальном режиме. Она проверяет создание PAM-пользователя, точное совпадение userid, роль Administrator на `/`, эффективные права, повторный запуск и сохранение настроек после перезапуска `pmxcfs`. Ошибки команд проверяются отдельно с подменой результата команды. Загрузка полноценного узла PVE, работа виртуальных машин и веб-интерфейс в этот тест не входят.
 
 ### Деплой
 
@@ -88,29 +94,45 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) выполняет:
 
 ```bash
 # Тест на Debian
-docker run --rm -v $(pwd):/app -w /app debian:latest bash -c "\
+docker run --rm -v "$(pwd)":/app:ro -w /app debian:13 bash -c "\
   apt-get -qq update > /dev/null && \
   apt-get -qq install -y openssl sudo curl iproute2 openssh-server age > /dev/null && \
-  ./admin_init.sh"
+  bash ./tests/container-test.sh"
 
 # Тест на Ubuntu
-docker run --rm -v $(pwd):/app -w /app ubuntu:latest bash -c "\
+docker run --rm -v "$(pwd)":/app:ro -w /app ubuntu:26.04 bash -c "\
   apt-get -qq update > /dev/null && \
   apt-get -qq install -y openssl sudo curl iproute2 openssh-server age > /dev/null && \
-  ./admin_init.sh"
+  bash ./tests/container-test.sh"
+```
+
+Проверки systemd и Proxmox запускайте только в одноразовых контейнерах; для systemd нужны записываемые cgroup, а для `pmxcfs` — FUSE. Команды используют `--privileged`, отдельные сетевые пространства и монтируют исходники только для чтения:
+
+```bash
+docker build --build-arg BASE=debian:13 -f tests/systemd.Dockerfile -t basic-setup-systemd:test .
+bash tests/systemd-test.sh basic-setup-systemd:test
+
+docker build -f tests/proxmox.Dockerfile -t basic-setup-proxmox:test .
+docker run --rm --privileged --cgroupns private --network none \
+  --hostname basic-setup-pve-validation \
+  -v "$(pwd):/app:ro" -w /app \
+  basic-setup-proxmox:test bash tests/proxmox-test.sh
 ```
 
 ## Безопасность
 
 - Пароль шифруется Age-шифрованием перед отправкой через ntfy.sh
 - SSH парольная аутентификация отключается автоматически
-- Конфигурация sshd проверяется (`sshd -t`) перед применением — при ошибке изменения откатываются
+- Настройки добавляются в начало основного конфига, вне `Match` и до `Include`; регистр существующих директив учитывается
+- Поддерживаются основной конфиг `/etc/ssh/sshd_config` и файлы `/etc/ssh/sshd_config.d/*.conf`; парольные исключения в `Match`, подключённых из других путей, требуют отдельной проверки и изменения
+- Проверяются синтаксис (`sshd -t`) и итоговые настройки (`sshd -T`); при ошибке валидации или перезапуска исходные файлы восстанавливаются
 - Файл пароля на сервере доступен только root (`chmod 600`)
 - Скрипт идемпотентен — безопасен при повторном запуске
 
 ## Особенности работы
 
 - Скрипт использует `set -e` — при ошибке в критических операциях выполнение прекращается
+- Ошибка настройки или перезапуска SSH завершает скрипт с ненулевым кодом; сообщения об успешной настройке и уведомления не отправляются
 - Некритические операции (уведомления, шифрование) обёрнуты в обработку ошибок и не прерывают работу скрипта
 - При обнаружении Proxmox VE пользователь автоматически добавляется в PVE с ролью Administrator
 - Если на сервере есть пользователь `ubuntu`, SSH-ключи добавляются и ему

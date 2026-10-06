@@ -26,9 +26,7 @@ The repository contains a single bash script (`admin_init.sh`) that:
 
 Passwords are saved on the server as `/root/.<username>_password.txt` (one file per user).
 
-The script uses `set -e` to stop on any error and includes error handling for non-critical operations (ntfy.sh notification, password encryption, sshd restart).
-
-The script uses `set -e` to stop on any error and includes error handling for non-critical operations (ntfy.sh notification, password encryption).
+The script uses `set -e` to stop on critical errors, including SSH setup/restart failures. SSH changes are backed up and restored on failure. Notifications and password encryption remain non-critical.
 
 ## CI/CD Pipeline
 
@@ -37,14 +35,20 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) performs:
 1. **Lint**: Runs `shellcheck` on `admin_init.sh` and `tests/container-test.sh`
 
 2. **Testing**: Runs `tests/container-test.sh` in Docker containers (matrix: `debian:13`, `ubuntu:26.04`)
-   - Installs dependencies: `openssl`, `sudo`, `curl`, `iproute2`, `openssh-server`
+   - Installs dependencies: `openssl`, `sudo`, `curl`, `iproute2`, `openssh-server`, `age`
    - Executes the script **twice** (idempotency check) and asserts the results: users exist, sudoers is valid, authorized_keys contents/permissions/ownership, password files exist with mode 600 and don't change on re-run, SSH password authentication is disabled (`sshd -T`), no leftover config backups
 
 3. **Deployment**: After lint and tests pass (push to `main` only), deploys `admin_init.sh` to GitHub Pages for public access. The deploy job uses the `github-pages` environment and a `pages` concurrency group.
 
 Actions are pinned to commit SHAs (with `# vN` comments); container images are pinned to specific releases — update both explicitly when bumping versions.
 
-Note: each test run sends real notifications to the ntfy.sh topic (the script's notification step is not disabled in CI).
+Tests replace curl with a no-op, so CI does not send real notifications or contact the IP lookup service. `tests/ssh-config-test.sh` also checks case-insensitive directives, missing Include, trailing Match blocks, stable repeat runs, a live SSH handshake, and rollback after validation/restart failures. Run these destructive tests only in disposable containers.
+
+`test-systemd` builds `tests/systemd.Dockerfile` for each distro and runs `tests/systemd-test.sh` with a real PID-1 systemd. Both service and socket activation modes verify public-key login and the live server's offered authentication methods. The test waits for real login readiness after asynchronous reload.
+
+`test-proxmox` builds `tests/proxmox.Dockerfile` using the official archive signing key's published SHA256 and signed apt metadata. `tests/proxmox-test.sh` exercises real Proxmox 9 pveum and local-mode pmxcfs: userid matching, enabled PAM user, propagating Administrator ACL, effective privileges, idempotence and persistence. Separate fault injection verifies explicit failures even when Bash errexit is suppressed by a conditional caller. These fixtures use privileged disposable containers, private network/cgroup namespaces and read-only source mounts. They do not test a complete PVE node, GUI or VM lifecycle.
+
+SSH rewriting supports the main config and `/etc/ssh/sshd_config.d/*.conf`. External Include paths with password-enabled Match overrides need separate validation and configuration changes.
 
 ## Testing Locally
 
@@ -54,7 +58,7 @@ To run the same test as CI locally in a Docker container:
 # Test on Debian (replace image with ubuntu:26.04 for Ubuntu)
 docker run --rm -v $(pwd):/app -w /app debian:13 bash -c "\
   apt-get -qq update > /dev/null && \
-  apt-get -qq install -y openssl sudo curl iproute2 openssh-server > /dev/null && \
+  apt-get -qq install -y openssl sudo curl iproute2 openssh-server age > /dev/null && \
   ./tests/container-test.sh"
 ```
 

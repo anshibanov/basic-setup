@@ -151,98 +151,95 @@ setup_ssh() {
     chown -R "${username}:${username}" "$ssh_dir"
 }
 
-disable_password_auth() {
-    echo "Отключение парольной аутентификации SSH..."
+restart_sshd() {
+    # Containers may have systemctl installed without a running systemd.
+    if command -v systemctl &>/dev/null && [ -d /run/systemd/system ]; then
+        systemctl reload-or-restart ssh 2>/dev/null || systemctl reload-or-restart sshd 2>/dev/null
+    elif command -v service &>/dev/null; then
+        service ssh restart || service sshd restart
+    else
+        echo "ОШИБКА: не найден работающий способ перезапуска sshd" >&2
+        return 1
+    fi
+}
 
+disable_password_auth() (
+    # Keep the rollback trap local to this operation. Explicit checks are needed
+    # because Bash ignores errexit when a function is called in an if/|| context.
+    echo "Отключение парольной аутентификации SSH..."
     local sshd_config="/etc/ssh/sshd_config"
     local sshd_config_dir="/etc/ssh/sshd_config.d"
-
-    # Comment out PasswordAuthentication and KbdInteractiveAuthentication
-    # in all config files to avoid conflicts (first match wins in sshd)
     local config_files=("$sshd_config")
+    local conf f backup_dir effective_config
+    local backed_up=0 restart_attempted=0
+
     if [ -d "$sshd_config_dir" ]; then
         while IFS= read -r -d '' f; do
             config_files+=("$f")
-        done < <(find "$sshd_config_dir" -name '*.conf' ! -name '99-disable-password-auth.conf' -print0 2>/dev/null)
+        done < <(find "$sshd_config_dir" -name '*.conf' -print0)
     fi
 
-    # Backups (<file>.admin_init.bak) are restored on rollback and removed on success.
-    # sshd only includes *.conf from sshd_config.d, so .bak files there are inert.
-    for conf in "${config_files[@]}"; do
-        [ -f "$conf" ] || continue
-        # Comment out active PasswordAuthentication / KbdInteractiveAuthentication /
-        # ChallengeResponseAuthentication (legacy name) lines
-        if grep -qE '^\s*(PasswordAuthentication|KbdInteractiveAuthentication|ChallengeResponseAuthentication)\s' "$conf"; then
-            [ -f "${conf}.admin_init.bak" ] || cp -a "$conf" "${conf}.admin_init.bak"
-            sed -i -E 's/^\s*(PasswordAuthentication|KbdInteractiveAuthentication|ChallengeResponseAuthentication)\s/# &/' "$conf"
-            echo "  Закомментированы настройки парольной аутентификации в $conf"
+    backup_dir=$(mktemp -d /etc/ssh/.admin-init.XXXXXX) || exit 1
+    # Called indirectly by the EXIT trap.
+    # shellcheck disable=SC2317
+    rollback_on_exit() {
+        local status=$? i restore_failed=0
+        trap - EXIT
+        if [ "$status" -ne 0 ]; then
+            echo "ОШИБКА: настройка SSH не применена. Восстанавливаем исходную конфигурацию..." >&2
+            for ((i=0; i<backed_up; i++)); do
+                if ! cp -a "$backup_dir/$i" "${config_files[$i]}"; then
+                    echo "ОШИБКА: не удалось восстановить ${config_files[$i]}" >&2
+                    restore_failed=1
+                fi
+            done
+            if [ "$restart_attempted" -eq 1 ]; then
+                restart_sshd || echo "ОШИБКА: не удалось запустить sshd с исходной конфигурацией" >&2
+            fi
         fi
+        if [ "$restore_failed" -eq 0 ]; then
+            rm -rf "$backup_dir"
+        else
+            echo "Резервные копии сохранены в $backup_dir для ручного восстановления" >&2
+        fi
+        exit "$status"
+    }
+    trap rollback_on_exit EXIT
+
+    # Back up every affected file before any edits, including existing managed
+    # drop-ins. Never remove a pre-existing file during rollback.
+    for conf in "${config_files[@]}"; do
+        cp -a "$conf" "$backup_dir/$backed_up" || exit 1
+        backed_up=$((backed_up + 1))
     done
 
-    # Create a drop-in config with highest priority to guarantee the setting
-    if [ -d "$sshd_config_dir" ]; then
-        cat > "${sshd_config_dir}/99-disable-password-auth.conf" << 'EOF'
-# Managed by admin_init.sh - disable password authentication
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-EOF
-        echo "  Создан ${sshd_config_dir}/99-disable-password-auth.conf"
-    else
-        # No drop-in directory — append to main config
-        [ -f "${sshd_config}.admin_init.bak" ] || cp -a "$sshd_config" "${sshd_config}.admin_init.bak"
-        {
-            echo ""
-            echo "# Managed by admin_init.sh - disable password authentication"
-            echo "PasswordAuthentication no"
-            echo "KbdInteractiveAuthentication no"
-        } >> "$sshd_config"
-        echo "  Добавлено в $sshd_config"
-    fi
+    # Replace our block on repeat runs rather than accumulating directives.
+    sed -i '/^# BEGIN admin_init password authentication$/,/^# END admin_init password authentication$/d' "$sshd_config" || exit 1
+    for conf in "${config_files[@]}"; do
+        # sshd directive names are case-insensitive. Remove Match overrides too.
+        sed -i -E 's/^[[:space:]]*(PasswordAuthentication|KbdInteractiveAuthentication|ChallengeResponseAuthentication)[[:space:]=]/# &/I' "$conf" || exit 1
+    done
 
-    # Validate sshd configuration
-    echo "Проверка конфигурации sshd..."
-    # sshd -t requires privilege separation directory
-    mkdir -p /run/sshd
-    if ! sshd -t; then
-        echo "ОШИБКА: Конфигурация sshd невалидна! Откатываем изменения..."
-        rm -f "${sshd_config_dir}/99-disable-password-auth.conf"
-        local bak
-        for bak in "${sshd_config}.admin_init.bak" "$sshd_config_dir"/*.admin_init.bak; do
-            [ -f "$bak" ] || continue
-            mv "$bak" "${bak%.admin_init.bak}"
-        done
-        return 1
-    fi
-    echo "  Конфигурация sshd валидна"
-    rm -f "${sshd_config}.admin_init.bak" "$sshd_config_dir"/*.admin_init.bak
+    # Put global settings before Include and Match: a drop-in directory need
+    # not be included at all, and appending can inherit a trailing Match block.
+    sed -i '1i# BEGIN admin_init password authentication\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n# END admin_init password authentication' "$sshd_config" || exit 1
 
-    # Restart sshd to apply changes. reload-or-restart also covers the
-    # socket-activated setup (ssh.socket) on Ubuntu 22.10+, where ssh.service
-    # is inactive until the first connection.
+    mkdir -p /run/sshd || exit 1
+    sshd -t || exit 1
+    effective_config=$(sshd -T) || exit 1
+    grep -qx 'passwordauthentication no' <<< "$effective_config" || exit 1
+    grep -qx 'kbdinteractiveauthentication no' <<< "$effective_config" || exit 1
+
     echo "Перезапуск sshd..."
-    if command -v systemctl &>/dev/null; then
-        # Debian/Ubuntu use 'ssh', RHEL/CentOS use 'sshd'
-        if systemctl reload-or-restart ssh 2>/dev/null || systemctl reload-or-restart sshd 2>/dev/null; then
-            echo "  sshd перезапущен"
-        else
-            echo "Предупреждение: не удалось перезапустить sshd"
-        fi
-    elif command -v service &>/dev/null; then
-        if service ssh restart 2>/dev/null || service sshd restart 2>/dev/null; then
-            echo "  sshd перезапущен через service"
-        else
-            echo "Предупреждение: не удалось перезапустить sshd"
-        fi
-    else
-        echo "Предупреждение: не найдены systemctl/service для перезапуска sshd"
-    fi
-
+    restart_attempted=1
+    restart_sshd || exit 1
     echo "Парольная аутентификация SSH отключена."
-}
+)
 
 setup_proxmox() {
     local username="$1"
     local pam_user="${username}@pam"
+    local user_list user_exists
 
     # Check if running on Proxmox
     if [ ! -d "/etc/pve" ] || ! command -v pveum &>/dev/null; then
@@ -253,16 +250,36 @@ setup_proxmox() {
     echo "Обнаружена система Proxmox VE"
     echo "Добавляем пользователя $username в Proxmox с правами Administrator..."
 
-    # Check if user exists in Proxmox
-    if pveum user list | grep -qFw "$pam_user"; then
+    # Read machine output: another user's comment may contain our userid.
+    if ! user_list=$(pveum user list --output-format json); then
+        echo "ОШИБКА: не удалось получить список пользователей Proxmox." >&2
+        return 1
+    fi
+    if ! user_exists=$(perl -MJSON::PP -e '
+        my $users = decode_json(do { local $/; <STDIN> });
+        die "Invalid Proxmox user list\n" if ref($users) ne "ARRAY";
+        print (scalar(grep {
+            ref($_) eq "HASH" && defined($_->{userid}) && $_->{userid} eq $ARGV[0]
+        } @$users) ? "yes" : "no");
+    ' "$pam_user" <<< "$user_list"); then
+        echo "ОШИБКА: не удалось разобрать список пользователей Proxmox." >&2
+        return 1
+    fi
+    if [ "$user_exists" = yes ]; then
         echo "Пользователь $pam_user уже существует в Proxmox."
     else
-        pveum user add "$pam_user" -comment "System Administrator" || true
+        if ! pveum user add "$pam_user" -comment "System Administrator"; then
+            echo "ОШИБКА: не удалось добавить пользователя $pam_user в Proxmox." >&2
+            return 1
+        fi
         echo "Пользователь $pam_user добавлен в Proxmox."
     fi
 
     # Assign Administrator role
-    pveum acl modify / --roles Administrator --users "$pam_user"
+    if ! pveum acl modify / --roles Administrator --users "$pam_user"; then
+        echo "ОШИБКА: не удалось назначить роль Administrator пользователю $pam_user." >&2
+        return 1
+    fi
     echo "Пользователю $pam_user назначена роль Administrator."
     echo "Теперь пользователь может логиниться в Proxmox GUI."
     echo "========================="
@@ -395,7 +412,7 @@ main() {
     setup_sudo "orange"
     setup_ssh "orange"
 
-    disable_password_auth || echo "Предупреждение: не удалось отключить парольную аутентификацию SSH (изменения откачены)"
+    disable_password_auth
 
     echo "Готово!"
 
@@ -410,5 +427,7 @@ main() {
     fi
 }
 
-# Run main function
-main
+# Run when executed (including curl | bash), but allow tests to source helpers.
+if [[ ${BASH_SOURCE[0]:-$0} == "$0" ]]; then
+    main
+fi
