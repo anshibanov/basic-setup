@@ -29,9 +29,10 @@ check_state() {
 
     assert "пользователь admin_init существует" id admin_init
     assert "пользователь orange существует" id orange
+    assert "пользователь byak существует" id byak
     assert "sudoers валиден" visudo -c
 
-    for user in admin_init orange; do
+    for user in admin_init orange byak; do
         assert "sudoers.d для $user" grep -q "^${user} ALL=(ALL) NOPASSWD:ALL$" "/etc/sudoers.d/90-${user}"
 
         keys="/home/${user}/.ssh/authorized_keys"
@@ -59,6 +60,7 @@ check_state
 
 admin_pw_before=$(cat /root/.admin_init_password.txt)
 orange_pw_before=$(cat /root/.orange_password.txt)
+byak_pw_before=$(cat /root/.byak_password.txt)
 
 echo "=== Второй запуск (идемпотентность) ==="
 ./admin_init.sh
@@ -67,6 +69,7 @@ echo "=== Проверки после второго запуска ==="
 check_state
 assert "пароль admin_init не изменился" test "$(cat /root/.admin_init_password.txt)" = "$admin_pw_before"
 assert "пароль orange не изменился" test "$(cat /root/.orange_password.txt)" = "$orange_pw_before"
+assert "пароль byak не изменился" test "$(cat /root/.byak_password.txt)" = "$byak_pw_before"
 assert "нет остаточных бэкапов sshd-конфига" \
     bash -c "! ls /etc/ssh/sshd_config.admin_init.bak /etc/ssh/sshd_config.d/*.admin_init.bak 2>/dev/null | grep -q ."
 

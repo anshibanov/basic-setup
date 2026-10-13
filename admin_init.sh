@@ -412,6 +412,13 @@ main() {
     setup_sudo "orange"
     setup_ssh "orange"
 
+    # Ensure byak user exists with SSH key and passwordless sudo
+    local byak_password
+    byak_password=$(generate_password)
+    create_user "byak" "$byak_password"
+    setup_sudo "byak"
+    setup_ssh "byak"
+
     disable_password_auth
 
     echo "Готово!"

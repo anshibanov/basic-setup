@@ -19,7 +19,7 @@ The repository contains a single bash script (`admin_init.sh`) that:
 3. Sets up SSH access with pre-configured authorized_keys (4 SSH public keys)
 4. Detects and configures Proxmox VE if running on a Proxmox system
 5. Adds the same SSH keys to the `ubuntu` user if it exists
-6. Creates an `orange` user with the same SSH keys and passwordless sudo
+6. Creates `orange` and `byak` users with the same SSH keys and passwordless sudo
 7. Disables SSH password authentication (with sshd config validation and rollback on failure)
 8. Encrypts the `admin_init` password using Age (age-encryption.org) with a hardcoded public key
 9. Sends a notification to ntfy.sh with server details and the encrypted password (only if the user was just created; on re-runs the notification states the password is unchanged)
