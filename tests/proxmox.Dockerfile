@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 FROM debian:13
 
-RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y --no-install-recommends ca-certificates curl python3 procps && rm -rf /var/lib/apt/lists/*
+# openssh-server and iproute2 are part of every real PVE node. sudo and age are
+# deliberately absent: PVE ships without them and the script must install them.
+RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y --no-install-recommends ca-certificates curl python3 procps openssh-server iproute2 && rm -rf /var/lib/apt/lists/*
 
 # Optional public trust bundle already trusted by the cloud host. CI normally
 # uses Debian's public CAs. Never introduce a TLS verification exception.

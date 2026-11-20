@@ -16,15 +16,19 @@
 💻 OS: Debian GNU/Linux 12 (bookworm)
 ⏰ Время: 2025-11-25 12:34:56 UTC
 
-🔐 Пароль (зашифрован):
+🔐 Пароль (зашифрован Age, расшифровка описана в DECRYPT.md):
 
-echo "-----BEGIN AGE ENCRYPTED FILE-----
+-----BEGIN AGE ENCRYPTED FILE-----
 YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBxYmR0K2pHU2lqYjJy...
 (несколько строк)
------END AGE ENCRYPTED FILE-----" | age -d -i ~/.age/key.txt
+-----END AGE ENCRYPTED FILE-----
 ```
 
-**Команда готова к использованию** - просто скопируйте её из уведомления и выполните в терминале!
+В уведомлении приходит **только зашифрованный блок**. Команду расшифровки вы вводите сами — она всегда одна и та же и приведена ниже.
+
+**ВАЖНО:** топик ntfy.sh публичный, отправить в него сообщение может кто угодно. Никогда не выполняйте команды, пришедшие в уведомлении, даже если оно выглядит как настоящее.
+
+Пароль отправляется, пока ntfy.sh не примет его: если первый запуск скрипта сорвался (об этом придёт уведомление «Server Setup FAILED»), пароль придёт после следующего успешного запуска.
 
 ## Приватный ключ
 
@@ -68,19 +72,17 @@ brew install age
 
 ### Расшифровка
 
-**Самый простой способ:** Скопируйте готовую команду прямо из уведомления ntfy.sh и выполните её в терминале!
+1. Убедитесь, что у вас есть файл `~/.age/key.txt` с приватным ключом
+2. Скопируйте из уведомления блок от `-----BEGIN AGE ENCRYPTED FILE-----` до `-----END AGE ENCRYPTED FILE-----` включительно
+3. Передайте его в `age` из буфера обмена:
 
 ```bash
-# Команда из уведомления уже готова к использованию:
-echo "-----BEGIN AGE ENCRYPTED FILE-----
-YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBxYmR0K2pHU2lqYjJy...
------END AGE ENCRYPTED FILE-----" | age -d -i ~/.age/key.txt
+pbpaste | age -d -i ~/.age/key.txt                        # macOS
+wl-paste | age -d -i ~/.age/key.txt                       # Linux (Wayland)
+xclip -o -selection clipboard | age -d -i ~/.age/key.txt  # Linux (X11)
 ```
 
-Единственное, что нужно сделать:
-1. Убедитесь, что у вас есть файл `~/.age/key.txt` с приватным ключом
-2. Скопируйте команду из уведомления
-3. Выполните её в терминале
+Без буфера обмена: запустите `age -d -i ~/.age/key.txt`, вставьте блок в терминал и нажмите Ctrl-D на пустой строке.
 
 ---
 
@@ -122,10 +124,8 @@ sudo apt-get install age
 # или macOS:
 # brew install age
 
-# 3. Скопируйте команду из ntfy.sh уведомления и выполните:
-echo "-----BEGIN AGE ENCRYPTED FILE-----
-YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBvNkxhc25sdzZMSTVz...
------END AGE ENCRYPTED FILE-----" | age -d -i ~/.age/key.txt
+# 3. Скопируйте зашифрованный блок из уведомления ntfy.sh и расшифруйте его:
+pbpaste | age -d -i ~/.age/key.txt
 
 # Вывод (пароль):
 # xY9pQ2mK3vN8rT5w

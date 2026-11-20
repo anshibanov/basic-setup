@@ -92,7 +92,7 @@ pass 'repeat setup preserves user/ACL configuration'
 # Fault injection checks shell error propagation only. The successful user,
 # ACL and permissions checks above use the actual installed pveum and pmxcfs.
 # Called indirectly by the sourced setup_proxmox helper.
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 pveum() {
     printf '%s %s\n' "$1" "$2" >> /tmp/pve-calls
     case "$failure:$1 $2" in
