@@ -10,8 +10,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   lint:
@@ -31,7 +29,9 @@ jobs:
       fail-fast: false
       matrix:
         image:
+          - debian:12
           - debian:13
+          - ubuntu:24.04
           - ubuntu:26.04
     steps:
       - name: Checkout repository
@@ -40,6 +40,7 @@ jobs:
       - name: Make scripts executable
         run: chmod +x admin_init.sh tests/container-test.sh
 
+      # sudo is not preinstalled on purpose: the script must install it itself.
       - name: Test script on ${{ matrix.image }}
         run: |
           docker run --rm \
@@ -47,7 +48,7 @@ jobs:
             -w /app \
             ${{ matrix.image }} bash -c "\
               apt-get -qq update > /dev/null && \
-              apt-get -qq install -y openssl sudo curl iproute2 openssh-server age > /dev/null && \
+              apt-get -qq install -y openssl curl iproute2 openssh-server age > /dev/null && \
               ./tests/container-test.sh"
 
   test-systemd:
@@ -56,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [debian:13, ubuntu:26.04]
+        image: [debian:12, debian:13, ubuntu:24.04, ubuntu:26.04]
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -84,11 +85,24 @@ jobs:
             -v "${{ github.workspace }}:/app:ro" -w /app \
             basic-setup-proxmox:test bash tests/proxmox-test.sh
 
+      # Needs the network: the script installs sudo and age on the fixture.
+      - name: Test full run on Proxmox without sudo
+        run: |
+          docker run --rm --privileged --cgroupns private \
+            --hostname basic-setup-pve-validation \
+            -v "${{ github.workspace }}:/app:ro" -w /app \
+            basic-setup-proxmox:test bash tests/proxmox-main-test.sh
+
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [lint, test-script, test-systemd, test-proxmox]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only this job publishes: the test jobs get a read-only token.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     concurrency:
       group: pages
       cancel-in-progress: false

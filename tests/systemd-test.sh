@@ -26,7 +26,7 @@ check_inside() {
     trap "rm -rf '$test_dir'" EXIT
 
     # Called indirectly by assert.
-    # shellcheck disable=SC2317
+    # shellcheck disable=SC2317,SC2329
     key_login() {
         local attempt result
         # systemctl's ExecReload completes after SIGHUP, before sshd re-execs.
